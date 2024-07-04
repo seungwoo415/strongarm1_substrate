@@ -11,11 +11,12 @@ use substrate::arcstr::ArcStr;
 use substrate::block::Block;
 use substrate::error::Result;
 use substrate::geometry::align::AlignMode;
-use substrate::io::{DiffPair, InOut, Input, Io, MosIo, MosIoSchematic, Output, Signal};
+use substrate::io::{DiffPair, InOut, Input, Io, MosIo, MosIoSchematic, Output, Signal, Array, ArrayData, schematic};
 use substrate::layout::ExportsLayoutData;
 use substrate::pdk::Pdk;
 use substrate::schematic::schema::Schema;
 use substrate::schematic::ExportsNestedData;
+use sky130pdk::atoll::{MosTileIo, MosTileIoSchematic};
 
 pub mod tb;
 
@@ -79,7 +80,7 @@ pub struct StrongArmParams {
 /// A StrongARM latch implementation.
 pub trait StrongArmImpl<PDK: Pdk + Schema> {
     /// The MOS tile.
-    type MosTile: Tile<PDK> + Block<Io = MosIo> + Clone;
+    type MosTile: Tile<PDK> + Block<Io = MosTileIo> + Clone;
     /// The tap tile.
     type TapTile: Tile<PDK> + Block<Io = TapIo> + Clone;
     /// A PDK-specific via maker.
@@ -190,170 +191,240 @@ impl<PDK: Pdk + Schema + Sized, T: StrongArmImpl<PDK> + Any> Tile<PDK> for Stron
         let tail = io.schematic.tail_d;
         let intn = io.schematic.input_d.n;
         let intp = cell.signal("intp", Signal);
-
+        
+        let input_rail1 = cell.signal("input_rail", Array::new(2, Signal));
+        let input_rail2 = cell.signal("input_rail", Array::new(1, Signal));
         let mut tail_dummy = cell.generate_connected(
             T::mos(half_tail_params),
-            MosIoSchematic {
-                d: input_rail,
-                g: input_rail,
-                s: input_rail,
+            MosTileIoSchematic {
+                sd: input_rail1,
+                g: input_rail2,
                 b: input_rail,
             },
         );
+        cell.connect(tail_dummy.io().sd[0], input_rail);
+        cell.connect(tail_dummy.io().sd[1], input_rail);
+        cell.connect(tail_dummy.io().g[0], input_rail);
+        
+        let input_rail_tail1 = &cell.signal("input_rail_tail", Array::new(2, Signal));
+        let io_stic =&cell.signal("io.schematic.top_io.clock", Array::new(1, Signal));
         let mut tail_pair = (0..2)
             .map(|_| {
                 cell.generate_connected(
                     T::mos(half_tail_params),
-                    MosIoSchematic {
-                        d: tail,
-                        g: io.schematic.top_io.clock,
-                        s: input_rail,
+                    MosTileIoSchematic {
+                        sd: input_rail_tail1.clone(),
+                        g: io_stic.clone(),
                         b: input_rail,
                     },
                 )
             })
             .collect::<Vec<_>>();
+        cell.connect(tail_pair[0].io().sd[0], input_rail);
+        cell.connect(tail_pair[0].io().sd[1], tail);
+        cell.connect(tail_pair[0].io().g[0], io.schematic.top_io.clock);
+        cell.connect(tail_pair[1].io().sd[0], input_rail);
+        cell.connect(tail_pair[1].io().sd[1], tail);
+        cell.connect(tail_pair[1].io().g[0], io.schematic.top_io.clock);
 
         let mut ptap = cell.generate(T::tap(TapTileParams::new(TileKind::P, 3)));
         let ntap = cell.generate(T::tap(TapTileParams::new(TileKind::N, 3)));
         cell.connect(ptap.io().x, io.schematic.top_io.vss);
         cell.connect(ntap.io().x, io.schematic.top_io.vdd);
 
+        let tail_int = cell.signal("tail_int", Array::new(2, Signal));
+        let iosti = cell.signal("io.schematic.top_io.input", Array::new(1, Signal));
         let mut input_pair = (0..2)
             .map(|i| {
                 cell.generate_connected(
                     T::mos(input_pair_params),
-                    MosIoSchematic {
-                        d: if i == 0 { intn } else { intp },
-                        g: if i == 0 {
-                            io.schematic.top_io.input.p
-                        } else {
-                            io.schematic.top_io.input.n
-                        },
-                        s: tail,
+                    MosTileIoSchematic {
+                        sd: tail_int.clone(),
+                        g: iosti.clone(),
                         b: input_rail,
                     },
                 )
             })
             .collect::<Vec<_>>();
+        cell.connect(input_pair[0].io().sd[0], tail);
+        cell.connect(input_pair[0].io().sd[1], intn);
+        cell.connect(tail_pair[0].io().g[0], io.schematic.top_io.input.p);
+        cell.connect(input_pair[1].io().sd[0], tail);
+        cell.connect(input_pair[1].io().sd[1], intp);
+        cell.connect(tail_pair[1].io().g[0], io.schematic.top_io.input.n);
+
+        let input_rail3 = cell.signal("input_rail", Array::new(2, Signal)); 
+        let input_rail4 = cell.signal("input_rail", Array::new(1, Signal));
+
         let mut input_dummy = cell.generate_connected(
             T::mos(input_pair_params),
-            MosIoSchematic {
-                d: input_rail,
-                g: input_rail,
-                s: input_rail,
+            MosTileIoSchematic {
+                sd: input_rail3,
+                g: input_rail4,
                 b: input_rail,
             },
         );
+        cell.connect(input_dummy.io().sd[0], input_rail);
+        cell.connect(input_dummy.io().sd[1], input_rail);
+        cell.connect(tail_dummy.io().g[0], input_rail);
+        
+        let intniostio = cell.signal("intn_io.schematic.top_io.output", Array::new(2, Signal));
+        let iostiop = cell.signal("io.schematic.top_io.output.p", Array::new(1, Signal));
+        let intpiostio = cell.signal("intp_io.schematic.top_io.output", Array::new(2, Signal));
+        let iostion = cell.signal("io.schematic.top_io.output.n", Array::new(1, Signal));
         let mut inv_input_pair = (0..2)
             .map(|i| {
                 cell.generate_connected(
                     T::mos(inv_input_params),
                     if i == 0 {
-                        MosIoSchematic {
-                            d: io.schematic.top_io.output.n,
-                            g: io.schematic.top_io.output.p,
-                            s: intn,
+                        MosTileIoSchematic {
+                            sd: intniostio.clone(),
+                            g: iostiop.clone(),
                             b: input_rail,
                         }
                     } else {
-                        MosIoSchematic {
-                            d: io.schematic.top_io.output.p,
-                            g: io.schematic.top_io.output.n,
-                            s: intp,
+                        MosTileIoSchematic {
+                            sd: intpiostio.clone(),
+                            g: iostion.clone(),
                             b: input_rail,
                         }
                     },
                 )
             })
             .collect::<Vec<_>>();
+        cell.connect(inv_input_pair[0].io().sd[0], intn);
+        cell.connect(inv_input_pair[0].io().sd[1], io.schematic.top_io.output.n);
+        cell.connect(inv_input_pair[0].io().g[0], io.schematic.top_io.output.p);
+        cell.connect(inv_input_pair[1].io().sd[0], intp);
+        cell.connect(inv_input_pair[1].io().sd[1], io.schematic.top_io.output.p);
+        cell.connect(inv_input_pair[1].io().g[0], io.schematic.top_io.output.n);
+
+        
+        let input_rail5 = cell.signal("input_rail", Array::new(2, Signal));
+        let input_rail6 = cell.signal("intput_rail", Array::new(1, Signal));
+
         let mut inv_input_dummy = cell.generate_connected(
             T::mos(inv_input_params),
-            MosIoSchematic {
-                d: input_rail,
-                g: input_rail,
-                s: input_rail,
+            MosTileIoSchematic {
+                sd: input_rail5,
+                g: input_rail6,
                 b: input_rail,
             },
         );
+        cell.connect(inv_input_dummy.io().sd[0], input_rail);
+        cell.connect(inv_input_dummy.io().sd[1], input_rail);
+        cell.connect(inv_input_dummy.io().g[0], input_rail);
+
+        let precharge_rail_ios = cell.signal("precharge_rail_io.schematic", Array::new(2, Signal));
+        let iostio1 = cell.signal("io.schematic.top_io.output", Array::new(1, Signal));
         let mut inv_precharge_pair = (0..2)
             .map(|i| {
                 cell.generate_connected(
                     T::mos(inv_precharge_params),
-                    MosIoSchematic {
-                        d: if i == 0 {
-                            io.schematic.top_io.output.n
-                        } else {
-                            io.schematic.top_io.output.p
-                        },
-                        g: if i == 0 {
-                            io.schematic.top_io.output.p
-                        } else {
-                            io.schematic.top_io.output.n
-                        },
-                        s: precharge_rail,
+                    MosTileIoSchematic {
+                        sd: precharge_rail_ios.clone(),
+                        g: iostio1.clone(),
                         b: precharge_rail,
                     },
                 )
             })
             .collect::<Vec<_>>();
+
+        cell.connect(inv_precharge_pair[0].io().sd[0], precharge_rail);
+        cell.connect(inv_precharge_pair[0].io().sd[1], io.schematic.top_io.output.n);
+        cell.connect(inv_precharge_pair[0].io().g[0], io.schematic.top_io.output.p);
+        cell.connect(inv_precharge_pair[1].io().sd[0], precharge_rail);
+        cell.connect(inv_precharge_pair[1].io().sd[1], io.schematic.top_io.output.p);
+        cell.connect(inv_precharge_pair[1].io().g[0], io.schematic.top_io.output.n);
+        
+
+        let precharge_rail1 = cell.signal("precharge_rail", Array::new(2, Signal));
+        let precharge_rail2 = cell.signal("precharge_rail", Array::new(1, Signal));
         let mut inv_precharge_dummy = cell.generate_connected(
             T::mos(inv_precharge_params),
-            MosIoSchematic {
-                d: precharge_rail,
-                g: precharge_rail,
-                s: precharge_rail,
+            MosTileIoSchematic {
+                sd: precharge_rail1,
+                g: precharge_rail2, 
                 b: precharge_rail,
             },
         );
+        cell.connect(inv_precharge_dummy.io().sd[0], precharge_rail);
+        cell.connect(inv_precharge_dummy.io().sd[1], precharge_rail);
+        cell.connect(inv_precharge_dummy.io().g[0], precharge_rail);
+
+        let precharge_rail_ios = cell.signal("precharge_rail_io.schematic", Array::new(1, Signal));
+        let iost_ioc = cell.signal("io.schematic.top_io.clock", Array::new(1, Signal));
+
         let mut precharge_pair_a = (0..2)
             .map(|i| {
                 cell.generate_connected(
                     T::mos(precharge_params),
-                    MosIoSchematic {
-                        d: if i == 0 {
-                            io.schematic.top_io.output.n
-                        } else {
-                            io.schematic.top_io.output.p
-                        },
-                        g: io.schematic.top_io.clock,
-                        s: precharge_rail,
+                    MosTileIoSchematic {
+                        sd: precharge_rail_ios.clone(),
+                        g: iost_ioc.clone(),
                         b: precharge_rail,
                     },
                 )
             })
             .collect::<Vec<_>>();
+        
+            cell.connect(inv_precharge_pair[0].io().sd[0], precharge_rail);
+            cell.connect(inv_precharge_pair[0].io().sd[1], io.schematic.top_io.output.n);
+            cell.connect(inv_precharge_pair[0].io().g[0], io.schematic.top_io.clock);
+            cell.connect(inv_precharge_pair[1].io().sd[0], precharge_rail);
+            cell.connect(inv_precharge_pair[1].io().sd[1],  io.schematic.top_io.output.p);
+            cell.connect(inv_precharge_pair[1].io().g[0], io.schematic.top_io.clock);
+        
+        let precharge_rail3 = cell.signal("precharge_rail", Array::new(2, Signal)); 
+        let precharge_rail4 = cell.signal("precharge_rail", Array::new(1, Signal));
+
         let mut precharge_pair_a_dummy = cell.generate_connected(
             T::mos(precharge_params),
-            MosIoSchematic {
-                d: precharge_rail,
-                g: precharge_rail,
-                s: precharge_rail,
+            MosTileIoSchematic {
+                sd: precharge_rail3,
+                g: precharge_rail4,
                 b: precharge_rail,
             },
         );
+        cell.connect(precharge_pair_a_dummy.io().sd[0], precharge_rail);
+        cell.connect(precharge_pair_a_dummy.io().sd[1], precharge_rail);
+        cell.connect(precharge_pair_a_dummy.io().g[0], precharge_rail);
+
+        let precharge_rail_int = cell.signal("precharge_rail_int", Array::new(2, Signal));
+        let iostic1 = cell.signal("io.schematic.top_io.clock", Array::new(1, Signal));
         let mut precharge_pair_b = (0..2)
             .map(|i| {
                 cell.generate_connected(
                     T::mos(precharge_params),
-                    MosIoSchematic {
-                        d: if i == 0 { intn } else { intp },
-                        g: io.schematic.top_io.clock,
-                        s: precharge_rail,
+                    MosTileIoSchematic {
+                        sd: precharge_rail_int.clone(),
+                        g: iostic1.clone(),
                         b: precharge_rail,
                     },
                 )
             })
             .collect::<Vec<_>>();
+        cell.connect(precharge_pair_b[0].io().sd[0], precharge_rail);
+        cell.connect(precharge_pair_b[0].io().sd[1], intn);
+        cell.connect(precharge_pair_b[0].io().g[0], io.schematic.top_io.clock);
+        cell.connect(precharge_pair_b[1].io().sd[0], precharge_rail);
+        cell.connect(precharge_pair_b[1].io().sd[1],  intp);
+        cell.connect(precharge_pair_b[1].io().g[0], io.schematic.top_io.clock);
+
+        let precharge_rail5 = cell.signal("precharge_rail", Array::new(2, Signal));
+        let precharge_rail6 = cell.signal("precharge_rail", Array::new(1, Signal));
+
         let mut precharge_pair_b_dummy = cell.generate_connected(
             T::mos(precharge_params),
-            MosIoSchematic {
-                d: precharge_rail,
-                g: precharge_rail,
-                s: precharge_rail,
+            MosTileIoSchematic {
+                sd: precharge_rail5,
+                g: precharge_rail6,
                 b: precharge_rail,
             },
         );
+        cell.connect(precharge_pair_b_dummy.io().sd[0], precharge_rail);
+        cell.connect(precharge_pair_b_dummy.io().sd[1], precharge_rail);
+        cell.connect(precharge_pair_b_dummy.io().g[0], precharge_rail);
 
         let mut prev = ntap.lcm_bounds();
 
@@ -423,22 +494,22 @@ impl<PDK: Pdk + Schema + Sized, T: StrongArmImpl<PDK> + Any> Tile<PDK> for Stron
 
         io.layout.top_io.vdd.set_primary(ntap.layout.io().x.primary);
         io.layout.top_io.vss.set_primary(ptap.layout.io().x.primary);
-        io.layout.input_d.n.merge(input_pair[0].layout.io().d);
-        io.layout.input_d.p.merge(input_pair[1].layout.io().d);
-        io.layout.tail_d.merge(tail_pair[0].layout.io().d);
-        io.layout.top_io.clock.merge(tail_pair[0].layout.io().g);
-        io.layout.top_io.input.p.merge(input_pair[0].layout.io().g);
-        io.layout.top_io.input.n.merge(input_pair[1].layout.io().g);
+        io.layout.input_d.n.merge(input_pair[0].layout.io().sd[0].clone());
+        io.layout.input_d.p.merge(input_pair[1].layout.io().sd[1].clone());
+        io.layout.tail_d.merge(tail_pair[0].layout.io().sd[1].clone());
+        io.layout.top_io.clock.merge(tail_pair[0].layout.io().g[0].clone());
+        io.layout.top_io.input.p.merge(input_pair[0].layout.io().g[0].clone());
+        io.layout.top_io.input.n.merge(input_pair[1].layout.io().g[0].clone());
         io.layout
             .top_io
             .output
             .p
-            .merge(inv_nmos_pair[1].layout.io().d);
+            .merge(inv_nmos_pair[1].layout.io().sd[1].clone());
         io.layout
             .top_io
             .output
             .n
-            .merge(inv_nmos_pair[0].layout.io().d);
+            .merge(inv_nmos_pair[0].layout.io().sd[1].clone());
 
         Ok(((), ()))
     }
