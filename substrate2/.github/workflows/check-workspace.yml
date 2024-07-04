@@ -1,0 +1,60 @@
+name: check-workspace
+
+on:
+  workflow_call:
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: lint
+    runs-on: bwrc
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check formatting
+        run: |
+          cargo fmt --check
+      - name: Lint
+        run: |
+          cargo hack --feature-powerset clippy --locked -- -D warnings
+      - name: Lint examples
+        run: |
+          cargo hack --feature-powerset clippy --locked -- -D warnings
+        working-directory: examples
+  check-docs:
+    name: check-docs
+    runs-on: bwrc
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check docs
+        run: |
+          cargo hack --all rustdoc --all-features
+        env:
+          RUSTFLAGS: '-D warnings'
+          RUSTDOCFLAGS: '-D warnings'
+  test:
+    name: test
+    runs-on: [bwrc, nfs]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Test
+        run: cargo test --locked --all-features
+      - name: Test examples
+        run: cargo test --locked --all-features
+        working-directory: examples
+  check-docs-site:
+    name: check-docs-site
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'yarn'
+          cache-dependency-path: docs/site/yarn.lock
+      - run: yarn install
+        working-directory: docs/site
+      - run: yarn build
+        working-directory: docs/site
+

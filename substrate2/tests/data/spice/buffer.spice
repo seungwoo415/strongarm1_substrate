@@ -1,0 +1,9 @@
+* CMOS buffer
+
+.include inverter.spice
+.include "inverter2.spice"
+
+.subckt buffer din dout vdd vss
+X0 din dinb vdd vss inverter
+X1 dinb dout vdd vss inverter2
+.ends

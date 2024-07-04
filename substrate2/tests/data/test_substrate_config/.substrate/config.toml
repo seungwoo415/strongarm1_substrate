@@ -1,0 +1,8 @@
+[cache]
+[cache.providers.bwrc]
+kind = "Local"
+url = "http://0.0.0.0:1234"
+
+[cache.providers.public]
+kind = "Remote"
+url = "https://cache.substratelabs.io:1234"

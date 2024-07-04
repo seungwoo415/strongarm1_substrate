@@ -1,0 +1,10 @@
+build:
+  cargo d --no-deps --workspace --all-features --target-dir ./target --exclude tests --exclude examples
+  echo "<meta http-equiv=\"refresh\" content=\"0; url=substrate\">" > ./target/doc/index.html
+
+open: build
+  open ./target/doc/index.html
+
+deploy: build
+  fly deploy
+

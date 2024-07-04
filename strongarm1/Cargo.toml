@@ -1,0 +1,17 @@
+[package]
+name = "sky130_strongarm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+substrate = { path = "../substrate2/substrate" }
+ngspice = { path = "../substrate2/tools/ngspice"}
+sky130pdk = { path = "../substrate2/pdks/sky130pdk" }
+atoll = { path = "../substrate2/libs/atoll" }
+ucieanalog = { path = "../ucieanalog" } 
+spice = { path = "../substrate2/libs/spice" } 
+spectre = { path = "../substrate2/tools/spectre"}
+
+serde = { version = "1", features = ["derive"] }
+rust_decimal = "1.30"
+rust_decimal_macros = "1.30"

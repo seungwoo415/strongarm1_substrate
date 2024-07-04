@@ -1,0 +1,34 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+    "bins/cdl2spice",
+    "codegen",
+    "config",
+    "docs/examples",
+    "libs/atoll",
+    "libs/cache",
+    "libs/diagnostics",
+    "libs/enumify",
+    "libs/enumify_macros",
+    "libs/gds",
+    "libs/geometry",
+    "libs/geometry_macros",
+    "libs/pathtree",
+    "libs/scir",
+    "libs/spice",
+    "libs/nutlex",
+    "libs/type_dispatch",
+    "libs/type_dispatch_macros",
+    "libs/uniquify",
+    "libs/verilog",
+    "pdks/sky130pdk",
+    "substrate",
+    "tests",
+    "tools/ngspice",
+    "tools/spectre",
+]
+
+exclude = ["examples"]
+
